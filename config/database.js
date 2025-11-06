@@ -192,6 +192,7 @@ class Database {
           variable_tag TEXT,
           data_type TEXT,
           unit TEXT,
+          expression TEXT,
           ui_order INTEGER DEFAULT 100,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )

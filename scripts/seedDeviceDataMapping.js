@@ -22,21 +22,21 @@ const seedDeviceDataMapping = async () => {
     );
 
     const mappings = [
-      { variable_name: 'Gas Flow Rate', variable_tag: 'GFR', unit: 'l/min', data_type: 'numeric', ui_order: 1 },
-      { variable_name: 'Gas Oil Ratio', variable_tag: 'GOR', unit: 'ratio', data_type: 'numeric', ui_order: 2 },
-      { variable_name: 'Gas Volume Fraction', variable_tag: 'GVF', unit: '%', data_type: 'numeric', ui_order: 3 },
-      { variable_name: 'Oil Flow Rate', variable_tag: 'OFR', unit: 'l/min', data_type: 'numeric', ui_order: 4 },
-      { variable_name: 'Water Flow Rate', variable_tag: 'WFR', unit: 'l/min', data_type: 'numeric', ui_order: 5 },
-      { variable_name: 'Water Liquid Ratio', variable_tag: 'WLR', unit: '%', data_type: 'numeric', ui_order: 6 },
-      { variable_name: 'Pressure Average', variable_tag: 'PressureAvg', unit: 'bar', data_type: 'numeric', ui_order: 7 },
-      { variable_name: 'Temperature Average', variable_tag: 'TemperatureAvg', unit: '°C', data_type: 'numeric', ui_order: 8 }
+      { variable_name: 'Gas Flow Rate', variable_tag: 'GFR', unit: 'l/min', data_type: 'numeric', ui_order: 1, expression: null },
+      { variable_name: 'Gas Oil Ratio', variable_tag: 'GOR', unit: 'ratio', data_type: 'numeric', ui_order: 2, expression: null },
+      { variable_name: 'Gas Volume Fraction', variable_tag: 'GVF', unit: '%', data_type: 'numeric', ui_order: 3, expression: 'GFR / (GFR + OFR + WFR) * 100' },
+      { variable_name: 'Oil Flow Rate', variable_tag: 'OFR', unit: 'l/min', data_type: 'numeric', ui_order: 4, expression: null },
+      { variable_name: 'Water Flow Rate', variable_tag: 'WFR', unit: 'l/min', data_type: 'numeric', ui_order: 5, expression: null },
+      { variable_name: 'Water Liquid Ratio', variable_tag: 'WLR', unit: '%', data_type: 'numeric', ui_order: 6, expression: 'WFR / (WFR + OFR) * 100' },
+      { variable_name: 'Pressure Average', variable_tag: 'PressureAvg', unit: 'bar', data_type: 'numeric', ui_order: 7, expression: null },
+      { variable_name: 'Temperature Average', variable_tag: 'TemperatureAvg', unit: '°C', data_type: 'numeric', ui_order: 8, expression: null }
     ];
 
     for (const mapping of mappings) {
       await client.query(
-        `INSERT INTO device_data_mapping (device_type_id, variable_name, variable_tag, unit, data_type, ui_order)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [deviceTypeId, mapping.variable_name, mapping.variable_tag, mapping.unit, mapping.data_type, mapping.ui_order]
+        `INSERT INTO device_data_mapping (device_type_id, variable_name, variable_tag, unit, data_type, ui_order, expression)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [deviceTypeId, mapping.variable_name, mapping.variable_tag, mapping.unit, mapping.data_type, mapping.ui_order, mapping.expression]
       );
     }
 

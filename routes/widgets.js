@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const database = require('../config/database');
 const { protect } = require('../middleware/auth');
+const { buildExpressionCase } = require('../utils/expressionBuilder');
 
 if (typeof protect !== 'function') {
   console.error('ERROR: protect middleware is not a function. Check ../middleware/auth.js export.');
@@ -552,7 +553,7 @@ router.get('/widget-data/:widgetId', protect, async (req, res) => {
 
     for (const s of dataSourceConfig.seriesConfig) {
       const mappingResult = await database.query(
-        `SELECT variable_name, variable_tag, unit, data_type
+        `SELECT variable_name, variable_tag, unit, data_type, expression
          FROM device_data_mapping
          WHERE id = $1 AND device_type_id = $2`,
         [s.propertyId, dataSourceConfig.deviceTypeId]
@@ -567,65 +568,32 @@ router.get('/widget-data/:widgetId', protect, async (req, res) => {
       const variableTag = mapping.variable_tag;
       const variableName = mapping.variable_name;
       const unit = mapping.unit;
+      const expression = mapping.expression;
 
       console.log(`[WIDGET DATA] Loading series: ${variableName}, tag: ${variableTag}, unit: ${unit}`);
 
       const paramIndex = hasFilter ? 5 : 4;
-
-      // Check if this is a calculated field (GVF or WLR)
-      const isGVF = variableTag === 'GVF';
-      const isWLR = variableTag === 'WLR';
-
+      const hasExpression = expression && expression.trim();
       let seriesQuery;
 
-      if (isGVF) {
-        // Calculate GVF = GFR / (GFR + OFR + WFR) * 100
+      if (hasExpression) {
+        const sqlExpression = buildExpressionCase(expression, 'dd.data');
         seriesQuery = `
           ${deviceFilterJoin}
           SELECT
             dd.created_at as timestamp,
             dd.serial_number,
-            CASE
-              WHEN COALESCE((dd.data->>'GFR')::numeric, 0) + COALESCE((dd.data->>'OFR')::numeric, 0) + COALESCE((dd.data->>'WFR')::numeric, 0) > 0
-              THEN COALESCE((dd.data->>'GFR')::numeric, 0) * 100.0 /
-                   (COALESCE((dd.data->>'GFR')::numeric, 0) + COALESCE((dd.data->>'OFR')::numeric, 0) + COALESCE((dd.data->>'WFR')::numeric, 0))
-              ELSE 0
-            END as value
+            (${sqlExpression}) as value
           FROM device_data dd
           INNER JOIN device d ON dd.device_id = d.id
           WHERE d.company_id = $1
             AND d.device_type_id = $2
             ${deviceFilterWhere}
             ${timeFilter}
-            AND (dd.data ? 'GFR' OR dd.data ? 'OFR' OR dd.data ? 'WFR')
-          ORDER BY dd.created_at ASC
-          LIMIT $3
-        `;
-      } else if (isWLR) {
-        // Calculate WLR = WFR / (WFR + OFR) * 100
-        seriesQuery = `
-          ${deviceFilterJoin}
-          SELECT
-            dd.created_at as timestamp,
-            dd.serial_number,
-            CASE
-              WHEN COALESCE((dd.data->>'WFR')::numeric, 0) + COALESCE((dd.data->>'OFR')::numeric, 0) > 0
-              THEN COALESCE((dd.data->>'WFR')::numeric, 0) * 100.0 /
-                   (COALESCE((dd.data->>'WFR')::numeric, 0) + COALESCE((dd.data->>'OFR')::numeric, 0))
-              ELSE 0
-            END as value
-          FROM device_data dd
-          INNER JOIN device d ON dd.device_id = d.id
-          WHERE d.company_id = $1
-            AND d.device_type_id = $2
-            ${deviceFilterWhere}
-            ${timeFilter}
-            AND (dd.data ? 'WFR' OR dd.data ? 'OFR')
           ORDER BY dd.created_at ASC
           LIMIT $3
         `;
       } else {
-        // Regular field - fetch directly from JSON
         seriesQuery = `
           ${deviceFilterJoin}
           SELECT
@@ -644,8 +612,7 @@ router.get('/widget-data/:widgetId', protect, async (req, res) => {
         `;
       }
 
-      // For calculated fields (GVF/WLR), we don't need the variableTag parameter
-      const seriesParams = (isGVF || isWLR)
+      const seriesParams = hasExpression
         ? (hasFilter
             ? [companyId, dataSourceConfig.deviceTypeId, parseInt(limit), parseInt(hierarchyId || deviceId)]
             : [companyId, dataSourceConfig.deviceTypeId, parseInt(limit)])
@@ -724,7 +691,7 @@ router.get('/widget-data/:widgetId/latest', protect, async (req, res) => {
     const seriesData = {};
     for (const s of dataSourceConfig.seriesConfig) {
       const mappingResult = await database.query(
-        `SELECT variable_name, variable_tag, unit
+        `SELECT variable_name, variable_tag, unit, expression
          FROM device_data_mapping
          WHERE id = $1 AND device_type_id = $2`,
         [s.propertyId, dataSourceConfig.deviceTypeId]
@@ -739,46 +706,18 @@ router.get('/widget-data/:widgetId/latest', protect, async (req, res) => {
       const variableTag = mapping.variable_tag;
       const variableName = mapping.variable_name;
       const unit = mapping.unit;
+      const expression = mapping.expression;
 
-      // Check if this is a calculated field (GVF or WLR)
-      const isGVF = variableTag === 'GVF';
-      const isWLR = variableTag === 'WLR';
-
+      const hasExpression = expression && expression.trim();
       let query;
 
-      if (isGVF) {
-        // Calculate GVF = GFR / (GFR + OFR + WFR) * 100
+      if (hasExpression) {
+        const sqlExpression = buildExpressionCase(expression, 'dl.data');
         query = `
           SELECT
             dl.updated_at as timestamp,
             dl.serial_number,
-            CASE
-              WHEN COALESCE((dl.data->>'GFR')::numeric, 0) + COALESCE((dl.data->>'OFR')::numeric, 0) + COALESCE((dl.data->>'WFR')::numeric, 0) > 0
-              THEN COALESCE((dl.data->>'GFR')::numeric, 0) * 100.0 /
-                   (COALESCE((dl.data->>'GFR')::numeric, 0) + COALESCE((dl.data->>'OFR')::numeric, 0) + COALESCE((dl.data->>'WFR')::numeric, 0))
-              ELSE 0
-            END::text as value,
-            d.metadata->>'location' as location,
-            dt.type_name as device_type
-          FROM device_latest dl
-          INNER JOIN device d ON dl.device_id = d.id
-          INNER JOIN device_type dt ON d.device_type_id = dt.id
-          WHERE d.company_id = $1
-            AND d.device_type_id = $2
-          ORDER BY dl.updated_at DESC
-        `;
-      } else if (isWLR) {
-        // Calculate WLR = WFR / (WFR + OFR) * 100
-        query = `
-          SELECT
-            dl.updated_at as timestamp,
-            dl.serial_number,
-            CASE
-              WHEN COALESCE((dl.data->>'WFR')::numeric, 0) + COALESCE((dl.data->>'OFR')::numeric, 0) > 0
-              THEN COALESCE((dl.data->>'WFR')::numeric, 0) * 100.0 /
-                   (COALESCE((dl.data->>'WFR')::numeric, 0) + COALESCE((dl.data->>'OFR')::numeric, 0))
-              ELSE 0
-            END::text as value,
+            (${sqlExpression})::text as value,
             d.metadata->>'location' as location,
             dt.type_name as device_type
           FROM device_latest dl
@@ -789,7 +728,6 @@ router.get('/widget-data/:widgetId/latest', protect, async (req, res) => {
           ORDER BY dl.updated_at DESC
         `;
       } else {
-        // Regular field - fetch directly from JSON
         query = `
           SELECT
             dl.updated_at as timestamp,
@@ -805,8 +743,8 @@ router.get('/widget-data/:widgetId/latest', protect, async (req, res) => {
           ORDER BY dl.updated_at DESC
         `;
       }
-      // For calculated fields (GVF/WLR), we don't need the variableTag parameter
-      const params = (isGVF || isWLR)
+
+      const params = hasExpression
         ? [companyId, dataSourceConfig.deviceTypeId]
         : [variableTag, companyId, dataSourceConfig.deviceTypeId];
       const dataResult = await database.query(query, params);
